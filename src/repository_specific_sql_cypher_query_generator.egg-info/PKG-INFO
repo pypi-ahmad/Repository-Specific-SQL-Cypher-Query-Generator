@@ -1,0 +1,432 @@
+Metadata-Version: 2.4
+Name: repository-specific-sql-cypher-query-generator
+Version: 0.1.0
+Summary: Tutorial-first local Text-to-SQL and Text-to-Cypher fine-tuning system
+Requires-Python: <3.13,>=3.12.10
+Description-Content-Type: text/markdown
+Requires-Dist: accelerate>=1.8.1
+Requires-Dist: bert-score>=0.3.13
+Requires-Dist: bitsandbytes>=0.46.0
+Requires-Dist: datasets>=4.0.0
+Requires-Dist: evaluate>=0.4.3
+Requires-Dist: ipykernel>=6.29.5
+Requires-Dist: jupyter>=1.1.1
+Requires-Dist: loguru>=0.7.3
+Requires-Dist: matplotlib>=3.10.3
+Requires-Dist: mlflow>=3.1.0
+Requires-Dist: nbformat>=5.10.4
+Requires-Dist: neo4j>=5.28.1
+Requires-Dist: networkx>=3.5
+Requires-Dist: nltk>=3.9.1
+Requires-Dist: numpy>=2.2.6
+Requires-Dist: ollama>=0.6.0
+Requires-Dist: pandas>=2.3.0
+Requires-Dist: peft>=0.16.0
+Requires-Dist: pydantic>=2.11.7
+Requires-Dist: pydantic-settings>=2.10.1
+Requires-Dist: python-dotenv>=1.1.1
+Requires-Dist: pyyaml>=6.0.2
+Requires-Dist: requests>=2.32.4
+Requires-Dist: rouge-score>=0.1.2
+Requires-Dist: sacrebleu>=2.5.1
+Requires-Dist: scikit-learn>=1.7.0
+Requires-Dist: seaborn>=0.13.2
+Requires-Dist: sentencepiece>=0.2.0
+Requires-Dist: sqlglot>=27.1.0
+Requires-Dist: torch>=2.8.0
+Requires-Dist: tqdm>=4.67.1
+Requires-Dist: trl>=0.25.0
+Requires-Dist: transformers>=4.53.3
+Provides-Extra: dev
+Requires-Dist: pytest>=8.4.1; extra == "dev"
+Requires-Dist: pytest-cov>=6.2.1; extra == "dev"
+Requires-Dist: ruff>=0.12.2; extra == "dev"
+Provides-Extra: unsloth
+Requires-Dist: unsloth; extra == "unsloth"
+
+# Repository-Specific SQL & Cypher Query Generator (Tutorial-First, Local, Production-Grade)
+
+This project builds a specialized, schema-aware Text-to-SQL and Text-to-Cypher assistant.
+
+It is written as a practical mini-book and runnable engineering system:
+- tutorial notebooks,
+- reusable Python modules,
+- CLI pipelines,
+- QLoRA fine-tuning,
+- baseline-vs-fine-tuned evaluation,
+- Neo4j execution demo.
+
+All stages run locally with `uv` and Python `3.12.10`.
+
+## 1. Problem Statement
+
+Natural-language query generation is deceptively hard.
+
+### Why Text-to-SQL is hard
+- Schema grounding: mapping words to real tables/columns.
+- Join correctness: wrong join paths produce wrong business outcomes.
+- Aggregation/nesting: high syntactic and semantic fragility.
+- Ambiguity: user questions omit constraints.
+- Hallucination: models invent schema fields.
+
+### Why Text-to-Cypher is harder
+- Graph patterns require relationship-centric reasoning.
+- Directionality matters (`->` vs `<-`).
+- Multi-hop traversal planning is nontrivial.
+- SQL mental models do not transfer directly to graph patterns.
+
+This project explicitly addresses these issues with:
+- schema-aware prompts,
+- SQL parsing and normalization,
+- SQL-to-Cypher hybrid label generation,
+- fine-tuning,
+- validation and error analysis,
+- execution benchmarking.
+
+## 2. Dataset Strategy
+
+### Primary training data (required)
+- `Clinton/Text-to-sql-v1` (Hugging Face)
+
+Verified structure:
+- columns: `instruction`, `input`, `response`, `source`, `text`
+- rows: 262,208
+- many source domains (`wikisql`, `sql_create_context`, `spider`, etc.)
+
+Observed complexity includes joins, grouping, order clauses, and nested queries.
+
+### Execution benchmark subset
+- Official Spider SQLite DB bundle (downloaded for evaluation only)
+
+Why add Spider for execution metrics:
+- primary dataset is SQL text-focused and not uniformly DB-backed for execution benchmarking.
+- Spider provides real DB files for true execution equivalence checks.
+
+## 3. Model Choices and Tradeoffs
+
+### Fine-tuned target: Granite 4.1 3B family
+Selected because:
+- best local fit under 6 GB VRAM constraint,
+- practical QLoRA memory profile,
+- strong schema instruction behavior for its size.
+
+Tradeoffs:
+- lower absolute capacity than larger models,
+- but substantially better feasibility for reproducible local tuning.
+
+### Baseline and judge comparator: Qwen 3.5 4B
+Selected because:
+- strong non-fine-tuned baseline quality,
+- useful independent judge model for LLM-as-a-judge.
+
+Tradeoffs:
+- heavier runtime and tighter VRAM margin for fine-tuning.
+
+### Embedding model: qwen3-embedding:4b
+Selected because:
+- available locally,
+- improved schema/context retrieval quality vs very small embedders.
+
+Tradeoff:
+- higher embedding compute/storage than tiny models.
+
+### Not selected for core task: glm-ocr
+Reason:
+- OCR is not core to text-to-query generation.
+- kept optional for future document-ingestion extensions.
+
+## 3.1 Fine-Tuning Framework Choices (PEFT, TRL, Unsloth)
+
+### PEFT (used)
+- Definition: Parameter-Efficient Fine-Tuning using adapters (LoRA) on a frozen base model.
+- Why used: enables local adapter training for 3B-scale models under tight VRAM.
+- Where used: all training backends (`hf`, `trl`, and conditional `unsloth`).
+- What changed: training now saves portable adapter artifacts with explicit backend metadata.
+
+### TRL (used when available)
+- Definition: Training library with `SFTTrainer` and `SFTConfig` for supervised instruction tuning.
+- Why used: cleaner instruction-tuning semantics and direct support for prompt-completion style data.
+- Where used: primary backend when installed (`--backend trl` or `auto`).
+- What changed: supervised fine-tuning path now supports TRL-native configuration and logging.
+
+### Unsloth (conditionally used)
+- Definition: accelerated training framework integrated with TRL.
+- Why used: potential speed and VRAM gains only when model/runtime compatibility is verified.
+- Where used: optional backend (`--backend unsloth`) behind strict compatibility checks.
+- What changed: if compatibility fails (for example, unsupported base model family), pipeline falls back to TRL/HF and records the reason in training metadata.
+
+## 4. Project Structure
+
+```text
+Repository-Specific-SQL-Cypher-Query-Generator/
+├── configs/
+│   └── profiles.yaml
+├── data/
+│   ├── raw/
+│   └── processed/
+├── docker/
+│   └── docker-compose.neo4j.yml
+├── notebooks/
+│   ├── 00_intro_and_problem_framing.ipynb
+│   ├── 01_text2sql_and_text2cypher_foundations.ipynb
+│   ├── 02_dataset_deep_dive_and_splitting.ipynb
+│   ├── 03_sql_to_cypher_hybrid_labeling.ipynb
+│   ├── 04_baselines_prompt_only.ipynb
+│   ├── 05_qlora_finetuning_granite3b.ipynb
+│   ├── 06_evaluation_and_llm_judging.ipynb
+│   ├── 07_inference_pipeline_and_examples.ipynb
+│   └── 08_neo4j_graph_demo.ipynb
+├── scripts/
+│   ├── build_notebooks.py
+│   ├── prepare_data.py
+│   ├── build_cypher_labels.py
+│   ├── run_baselines.py
+│   ├── train_qlora.py
+│   ├── evaluate.py
+│   ├── infer.py
+│   ├── run_neo4j_demo.py
+│   └── run_end_to_end.py
+├── src/repo_query_gen/
+│   ├── config.py
+│   ├── types.py
+│   ├── utils.py
+│   ├── data_prep.py
+│   ├── cypher.py
+│   ├── baselines.py
+│   ├── training.py
+│   ├── inference.py
+│   ├── evaluation.py
+│   ├── neo4j_demo.py
+│   ├── schema_retrieval.py
+│   ├── visualize.py
+│   └── pipeline.py
+├── tests/
+├── .env.example
+├── .python-version
+└── pyproject.toml
+```
+
+## 5. Quick Start
+
+## 5.1 Environment setup
+
+```bash
+cd /home/ahmad/AI/Repository-Specific-SQL-Cypher-Query-Generator
+UV_CACHE_DIR=/tmp/uv-cache uv venv --python 3.12.10
+source .venv/bin/activate
+UV_CACHE_DIR=/tmp/uv-cache uv sync
+```
+
+## 5.2 Build notebooks
+
+```bash
+source .venv/bin/activate
+python scripts/build_notebooks.py
+```
+
+## 5.3 Pull required local models
+
+```bash
+ollama pull granite4.1:3b
+ollama pull qwen3.5:4b
+ollama pull qwen3-embedding:4b
+```
+
+## 5.4 Run the fast profile end-to-end
+
+```bash
+source .venv/bin/activate
+python scripts/run_end_to_end.py --profile fast --trainer-backend auto
+```
+
+## 5.5 Run full profile (long run)
+
+```bash
+source .venv/bin/activate
+python scripts/run_end_to_end.py --profile full
+```
+
+## 6. Data Preparation Pipeline
+
+The preparation stage performs:
+- dataset load and optional profile-based subsampling,
+- CREATE TABLE schema extraction from context,
+- SQL normalization and complexity tagging,
+- source+complexity stratified split,
+- persisted train/val/test artifacts and manifest.
+
+Run manually:
+
+```bash
+python scripts/prepare_data.py --profile fast
+```
+
+## 7. SQL-to-Cypher Extension Pipeline
+
+The Cypher extension uses a hybrid process:
+- deterministic SQL AST translation to Cypher draft,
+- optional local model refinement,
+- syntax checks and quality scoring,
+- persisted train/val/test Cypher labels.
+
+Run manually:
+
+```bash
+python scripts/build_cypher_labels.py --profile fast
+```
+
+## 8. Baselines
+
+Prompt-only baselines are run for:
+- `granite4.1:3b`
+- `qwen3.5:4b`
+
+Outputs include per-example SQL/Cypher predictions and references.
+
+Run manually:
+
+```bash
+python scripts/run_baselines.py --profile fast
+```
+
+## 9. Fine-Tuning (QLoRA)
+
+Training uses:
+- quantized base model (4-bit),
+- LoRA adapters,
+- gradient checkpointing,
+- profile-based hyperparameters,
+- MLflow local tracking,
+- selectable backend: `hf`, `trl`, `unsloth` (conditional).
+
+Run manually:
+
+```bash
+python scripts/train_qlora.py --profile fast --backend auto
+# strict run without backend fallback:
+# python scripts/train_qlora.py --profile fast --backend unsloth --no-fallback
+```
+
+Artifacts:
+- adapter weights,
+- train/eval metrics,
+- GPU snapshot,
+- Modelfile adapter template,
+- `training_metadata.json` (requested/effective backend, fallback reason, package versions).
+
+## 10. Evaluation
+
+Implemented metrics include:
+
+### Query generation metrics
+- Exact Match
+- Syntax Accuracy
+- Schema Grounding Accuracy
+- Retrieval Table Recall (for schema retrieval mode)
+
+### Text-generation metrics
+- BLEU
+- ROUGE-L
+- METEOR
+- BERTScore
+
+### Execution metrics
+- SQL execution benchmark on Spider subset (real SQLite databases)
+- Latency P50/P95 from real generation runs
+
+### LLM-as-a-judge
+Judge models:
+- `granite4.1:3b`
+- `qwen3.5:4b`
+
+Judge dimensions:
+- correctness,
+- completeness,
+- schema grounding,
+- hallucination risk.
+
+Run manually:
+
+```bash
+python scripts/evaluate.py --profile fast
+```
+
+## 11. Inference Workflow
+
+Single-query inference supports:
+- SQL or Cypher generation,
+- model mode: `ollama` or `finetuned`,
+- validation output,
+- schema references,
+- explanation block.
+
+Run manually:
+
+```bash
+python scripts/infer.py \
+  --task sql \
+  --mode ollama \
+  --question "Which startup has received the highest funding?" \
+  --schema-context "CREATE TABLE startups (id INT, name TEXT, funding REAL);"
+```
+
+## 12. Neo4j Demonstration
+
+A local Neo4j graph is created from real processed examples:
+- `Source`, `Question`, `SqlQuery`, `CypherQuery`, `Table` nodes,
+- relationships capturing usage and provenance,
+- demo Cypher queries persisted as artifacts.
+
+Start Neo4j:
+
+```bash
+docker compose -f docker/docker-compose.neo4j.yml up -d
+```
+
+Run demo:
+
+```bash
+python scripts/run_neo4j_demo.py --profile fast
+```
+
+## 13. Lessons Learned
+
+- Schema-aware fine-tuning is critical for reducing hallucinations.
+- Deterministic conversion plus validators is stronger than unconstrained generation for Cypher label building.
+- Baseline-vs-fine-tuned comparisons are essential to justify training cost.
+- Execution benchmarking requires DB-backed datasets; text-only SQL corpora are insufficient.
+
+## 14. Future Improvements
+
+- Add constrained decoding for stricter grammar compliance.
+- Add richer schema linking with embedding-based retrieval and re-ranking.
+- Add relation-aware Cypher semantic equivalence checking.
+- Add automated regression suite for query templates across domains.
+- Add optional Colab acceleration runbook while keeping local path primary.
+
+## 15. Reproducibility Notes
+
+- Set deterministic seed in `src/repo_query_gen/utils.py`.
+- Use profile configs in `configs/profiles.yaml`.
+- Use `uv` lockfile and local MLflow artifacts.
+- Persist all stage outputs under `artifacts/` and manifests in JSON.
+
+## 16. Troubleshooting
+
+### 16.1 QLoRA fails with CUDA OOM while Ollama is running
+
+If training fails and the error mentions another process occupying VRAM (for example an Ollama llama-server worker), free GPU memory first:
+
+```bash
+# inspect
+ps -eo pid,ppid,pcpu,pmem,etime,cmd | rg 'ollama|llama-server'
+
+# stop active Ollama generation jobs from your user session if applicable
+pkill -f '/usr/local/lib/ollama/llama-server'
+```
+
+Then rerun:
+
+```bash
+python scripts/train_qlora.py --profile fast
+```

@@ -1,0 +1,54 @@
+profiles:
+  fast:
+    dataset_rows: 12000
+    train_rows: 9000
+    val_rows: 1500
+    test_rows: 1500
+    max_train_steps: 5
+    batch_size: 1
+    gradient_accumulation_steps: 4
+    learning_rate: 0.0002
+    lora_r: 16
+    lora_alpha: 32
+    lora_dropout: 0.05
+    max_seq_len: 1024
+    eval_sample_size: 1
+    spider_eval_rows: 3
+    train_max_examples: 256
+    val_max_examples: 64
+
+  tutorial:
+    dataset_rows: 20000
+    train_rows: 15000
+    val_rows: 2500
+    test_rows: 2500
+    max_train_steps: 10
+    batch_size: 1
+    gradient_accumulation_steps: 4
+    learning_rate: 0.0002
+    lora_r: 8
+    lora_alpha: 16
+    lora_dropout: 0.05
+    max_seq_len: 512
+    eval_sample_size: 3
+    spider_eval_rows: 3
+    train_max_examples: 256
+    val_max_examples: 64
+
+  full:
+    dataset_rows: null
+    train_rows: null
+    val_rows: null
+    test_rows: null
+    max_train_steps: 1800
+    batch_size: 1
+    gradient_accumulation_steps: 16
+    learning_rate: 0.00015
+    lora_r: 32
+    lora_alpha: 64
+    lora_dropout: 0.05
+    max_seq_len: 1536
+    eval_sample_size: 6000
+    spider_eval_rows: 3000
+    train_max_examples: null
+    val_max_examples: null
